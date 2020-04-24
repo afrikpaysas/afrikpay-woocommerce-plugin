@@ -2,28 +2,27 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
-if (isset ($_GET["id"]) && isset ($_GET["afrikpay"])) {
+if ( isset ($_GET["afrikpay"])) {
 class WC_Gateway_Afrikpay extends WC_Payment_Gateway {}
 ?>
-<form id="dataForm" action="<?php echo $_GET["urlafrikpay"]; ?>" method="post" target="_top">
-<input type="hidden" name="quantity" value="<?php echo $_GET["quantity_1"]; ?>"/>
+<form id="dataFormAfrikpay" action="<?php echo $_GET["urlafrikpay"]; ?>" method="post" target="_top">
+<input type="hidden" name="provider" value="afrikpay"/>
 <input type="hidden" name="merchantid" value="<?php echo $_GET["merchantid"]; ?>" />
-<input type="hidden" name="sessionid" value="<?php echo $_GET["sessionid"]; ?>" />
 <input type="hidden" name="brand" value="Mon Panier" />
-<input type="hidden" name="currency" value="952" /> 
+<input type="hidden" name="currency" value="<?php echo get_woocommerce_currency(); ?>" /> 
 <input type="hidden" name="amount" value="<?php echo $_GET["totalamount"] ?>" />
 <input type="hidden" name="phonenumber" value="" />
 <input type="hidden" name="purchaseref" value="<?php $json = json_decode($_GET["custom"], true); echo $json['order_id']; ?>" />
-<input type="hidden" name="description" value="Description" />
 <input type="hidden" name="accepturl" value="<?php echo $_GET["return"]; ?>" />
 <input type="hidden" name="cancelurl" value="<?php echo $_GET["cancel_return"]; ?>" />
-<input type="hidden" name="declineurl" value="<?php echo $_GET["notify_url"]; ?>" />
+<input type="hidden" name="cancelurl" value="<?php echo $_GET["cancel_return"]; ?>" />
+<input type="hidden" name="notifurl" value="<?php echo $_GET["notify_url"]; ?>" />
 <input type="hidden" name="text" value="<?php echo $_GET["text"]; ?>" />
 <input type="hidden" name="language" value="fr" /> 
-<input type="hidden" name="autonly" value="no" />
+
 </form>
 <script type="text/javascript">
-    document.getElementById('dataForm').submit(); // SUBMIT FORM
+    document.getElementById('dataFormAfrikpay').submit(); // SUBMIT FORM
 </script>
 <?php
 
@@ -63,6 +62,7 @@ class WC_Gateway_Afrikpay extends WC_Payment_Gateway {
 		$this->title          = $this->get_option( 'title' );
 		$this->description    = $this->get_option( 'description' );
 		$this->merchantid     = $this->get_option( 'merchantid' );
+                $this->password     = $this->get_option( 'password' );
 		$this->urlafrikpay = $this->get_option( 'urlafrikpay' );
 		$this->debug          = 'yes' === $this->get_option( 'debug', 'no' );
 		$this->identity_token = $this->get_option( 'identity_token' );
@@ -73,6 +73,9 @@ class WC_Gateway_Afrikpay extends WC_Payment_Gateway {
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
 		add_action( 'woocommerce_order_status_on-hold_to_processing', array( $this, 'capture_payment' ) );
 		add_action( 'woocommerce_order_status_on-hold_to_completed', array( $this, 'capture_payment' ) );
+
+        add_action('woocommerce_api_wc_gateway_om', [$this, 'pay']);
+                
 
 		if ( ! $this->is_valid_for_use() ) {
 			$this->enabled = 'no';
@@ -95,6 +98,30 @@ class WC_Gateway_Afrikpay extends WC_Payment_Gateway {
 		}
 	}
 
+    function pay( $order_id ) {
+		$order_id = $_GET["purchaseref"];
+		if($order_id == null){
+			echo "Purhaseref missing";
+			exit;
+		}
+        $order = wc_get_order($order_id);
+        $status = $_GET["status"];
+        switch ( $status ) {
+			case 'OK' :
+				$order->add_order_note( sprintf( __( "Le paiement s'est bien pass\E9: %1$s", 'woocommerce' ), $status ) );
+				update_post_meta( $order->get_id(), '_mobilemoney_status', $status );
+				update_post_meta( $order->get_id(), '_transaction_id', $status );
+				$order->payment_complete();
+				header('Location: '.$this->get_return_url( $order ));
+			break;
+			default :
+				$order->add_order_note( sprintf( __( "Le paiement ne s'est pas bien pass\E9: %1$s", 'woocommerce' ), $status ) );
+				header('Location: '.esc_url_raw( $order->get_cancel_order_url_raw()));
+			break;
+				
+		}
+	}
+
 	/**
 	 * Get gateway icon.
 	 * @return string
@@ -107,32 +134,17 @@ class WC_Gateway_Afrikpay extends WC_Payment_Gateway {
 			$icon_html .= '<img src="' . esc_attr( $i ) . '" alt="' . esc_attr__( 'Afrikpay acceptance mark', 'woocommerce' ) . '" />';
 		}
 
-		$icon_html .= sprintf( '<a href="%1$s" class="about_afrikpay" onclick="javascript:window.open(\'%1$s\',\'WIAfrikpay\',\'toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=yes, resizable=yes, width=1060, height=700\'); return false;">' . esc_attr__( "Creer un compte Afrikpay?", 'woocommerce' ) . '</a>', esc_url( $this->get_icon_url( WC()->countries->get_base_country() ) ) );
+		$icon_html .= sprintf( '', esc_url( $this->get_icon_url( WC()->countries->get_base_country() ) ) );
 
 		return apply_filters( 'woocommerce_gateway_icon', $icon_html, $this->id );
 	}
 
-	/**
-	 * Get the Afrikpay Session ID
-	 * @param  string $urlafrikpay merchantid
-	 * @return string
-	 */
-	 public function get_session_id() {
-
-		$sessionResult = @file_get_contents( $this->urlafrikpay  . "?merchantid=" . $this->merchantid  ); // 
-		$result = explode( ':', $sessionResult ); // 
-		if ( $result[0] == 'OK' ) { 
-			$sessionId = $result[1]; 
-		}
-
-
-		return $sessionId;
-	}
+	
 
 	protected function get_icon_url( $country ) {
 		$url           = 'https://www.afrikpay.com/' . strtolower( $country );
 		$home_counties = array( 'BE', 'CZ', 'DK', 'HU', 'IT', 'JP', 'NL', 'NO', 'ES', 'SE', 'TR', 'IN' );
-		$countries     = array( 'DZ', 'AU', 'BH', 'BQ', 'BW', 'CA', 'CN', 'CW', 'FI', 'FR', 'DE', 'GR', 'HK', 'ID', 'JO', 'KE', 'KW', 'LU', 'MY', 'MA', 'OM', 'PH', 'PL', 'PT', 'QA', 'IE', 'RU', 'BL', 'SX', 'MF', 'SA', 'SG', 'SK', 'KR', 'SS', 'TW', 'TH', 'AE', 'GB', 'US', 'VN' );
+		$countries     = array( 'DZ', 'AU', 'BH', 'BQ', 'BW', 'CA', 'CN', 'CW', 'FI', 'FR', 'DE', 'GR', 'HK', 'ID', 'JO', 'KE', 'KW', 'LU', 'MY', 'MA', 'Afrikpay', 'PH', 'PL', 'PT', 'QA', 'IE', 'RU', 'BL', 'SX', 'MF', 'SA', 'SG', 'SK', 'KR', 'SS', 'TW', 'TH', 'AE', 'GB', 'US', 'VN' );
 
 		if ( in_array( $country, $home_counties ) ) {
 			return  $url . '/webapps/mpp/home';
@@ -209,11 +221,11 @@ class WC_Gateway_Afrikpay extends WC_Payment_Gateway {
 		include_once( 'class-wc-gateway-afrikpay-request.php' );
 
 		$order          = wc_get_order( $order_id );
-		$afrikpay_request = new WC_Gateway_Afrikpay_Request( $this );
+		$momo_request = new WC_Gateway_Afrikpay_Request( $this );
 
 		return array(
 			'result'   => 'success',
-			'redirect' => $afrikpay_request->get_request_url( $order ),
+			'redirect' => $momo_request->get_request_url( $order ),
 		);
 	}
 
@@ -233,7 +245,6 @@ class WC_Gateway_Afrikpay extends WC_Payment_Gateway {
 	 */
 	public function capture_payment( $order_id ) {
 		$order = wc_get_order( $order_id );
-
 		if ( 'afrikpay' === $order->get_payment_method() && 'pending' === get_post_meta( $order->get_id(), '_afrikpay_status', true ) && $order->get_transaction_id() ) {
 
 if(isset($_GET["status"])) {
@@ -259,12 +270,12 @@ $error=$_GET["error"];
 			if ( ! empty( $status ) ) {
 				switch ( $status ) {
 					case 'OK' :
-						$order->add_order_note( sprintf( __( "Le paiement s'est bien pass�: %1$s", 'woocommerce' ), $status ) );
+						$order->add_order_note( sprintf( __( "Le paiement s'est bien pass\E9: %1$s", 'woocommerce' ), $status ) );
 						update_post_meta( $order->get_id(), '_afrikpay_status', $status );
 						update_post_meta( $order->get_id(), '_transaction_id', $status );
 					break;
 					default :
-						$order->add_order_note( sprintf( __( "Le paiement ne s'est pas bien pass�: %1$s", 'woocommerce' ), $status ) );
+						$order->add_order_note( sprintf( __( "Le paiement ne s'est pas bien pass\E9: %1$s", 'woocommerce' ), $status ) );
 					break;
 				
 			}
