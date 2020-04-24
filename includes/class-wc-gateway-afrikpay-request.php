@@ -50,7 +50,7 @@ class WC_Gateway_Afrikpay_Request {
 		if ( $sandbox ) {
 			return 'https://www.sandbox.afrikpay.com/cgi-bin/webscr?test_ipn=1&' . $afrikpay_args;
 		} else {
-			return wc_get_checkout_url().'?id=15&' . $afrikpay_args;
+			return wc_get_checkout_url().'?&' . $afrikpay_args;
 		}
 	}
 
@@ -104,11 +104,10 @@ class WC_Gateway_Afrikpay_Request {
 				'country'       => $this->limit_length( $order->get_billing_country(), 2 ),
 				'email'         => $this->limit_length( $order->get_billing_email() ),
 				'urlafrikpay'    => esc_url_raw( $this->gateway->get_option( 'urlafrikpay' )),	
-				'merchantid'    => $this->gateway->get_option( 'merchantid' ),		
-				'sessionid'    =>  $this->gateway->get_session_id(),	
-				'afrikpay'    =>  true,	
-				'totalamount'  =>  $this->getTotalamount($order),
-				'text'  =>  $this->getText($order)		
+				'merchantid'    => $this->gateway->get_option( 'merchantid' ),
+				'afrikpay'    => true,
+				'totalamount'   => $this->getTotalamount($order),
+				'text'          => $this->getText($order)
 			),
 			$this->get_phone_number_args( $order ),
 			$this->get_shipping_args( $order ),
@@ -164,6 +163,52 @@ class WC_Gateway_Afrikpay_Request {
 		}
 
 		return $shipping_args;
+	}
+
+	/**
+	 * Get the value of totalamount
+	 */ 
+	public function getTotalamount($order)
+	{
+		$total = 0 ;
+
+		foreach ( $order->get_items( array( 'line_item', 'fee' ) ) as $item ) {
+			if ( 'fee' === $item['type'] ) {
+				$item_line_total  = $this->number_format( $item['line_total'], $order );
+				$line_item        = $this->add_line_item( $item->get_name(), 1, $item_line_total );
+				$total += $item_line_total;
+			} else {
+				$product          = $item->get_product();
+				$sku              = $product ? $product->get_sku() : '';
+				$item_line_total  = $this->number_format( $order->get_item_subtotal( $item, false ), $order );
+				$line_item        = $this->add_line_item( $this->get_order_item_name( $order, $item ), $item->get_quantity(), $item_line_total, $sku );
+				$total += $item_line_total * $item->get_quantity();
+			}
+
+			if ( ! $line_item ) {
+				return false;
+			}
+		}
+
+		$total = $total + $this->number_format( $order->get_shipping_total() + $order->get_shipping_tax(), $order );
+
+		return $total;
+	}
+
+	/**
+	 * Get the value of text
+	 */ 
+	public function getText($order)
+	{
+		$text = "";
+		foreach ( $order->get_items( array( 'line_item', 'fee' ) ) as $item ) {
+			if($text == ""){
+				$text = $this->get_order_item_name( $order, $item ) . " (". $item->get_quantity() . ")";
+			}elseif(true){
+				$text = $text . " , " . $this->get_order_item_name( $order, $item ) . " (". $item->get_quantity() . ")";
+			}
+		}
+		return $text;
 	}
 
 	/**
@@ -223,53 +268,6 @@ class WC_Gateway_Afrikpay_Request {
 
 		return $line_item_args;
 	}
-
-	/**
-	 * Get the value of totalamount
-	 */ 
-	public function getTotalamount($order)
-	{
-		$total = 0 ;
-
-		foreach ( $order->get_items( array( 'line_item', 'fee' ) ) as $item ) {
-			if ( 'fee' === $item['type'] ) {
-				$item_line_total  = $this->number_format( $item['line_total'], $order );
-				$line_item        = $this->add_line_item( $item->get_name(), 1, $item_line_total );
-				$total += $item_line_total;
-			} else {
-				$product          = $item->get_product();
-				$sku              = $product ? $product->get_sku() : '';
-				$item_line_total  = $this->number_format( $order->get_item_subtotal( $item, false ), $order );
-				$line_item        = $this->add_line_item( $this->get_order_item_name( $order, $item ), $item->get_quantity(), $item_line_total, $sku );
-				$total += $item_line_total * $item->get_quantity();
-			}
-
-			if ( ! $line_item ) {
-				return false;
-			}
-		}
-
-		$total = $total + $this->number_format( $order->get_shipping_total() + $order->get_shipping_tax(), $order );
-
-		return $total;
-	}
-
-	/**
-	 * Get the value of text
-	 */ 
-	public function getText($order)
-	{
-		$text = "";
-		foreach ( $order->get_items( array( 'line_item', 'fee' ) ) as $item ) {
-			if($text == ""){
-				$text = $this->get_order_item_name( $order, $item ) . " (". $item->get_quantity() . ")";
-			}elseif(true){
-				$text = $text . " , " . $this->get_order_item_name( $order, $item ) . " (". $item->get_quantity() . ")";
-			}
-		}
-		return $text;
-	}
-
 
 	/**
 	 * Get order item names as a string.
